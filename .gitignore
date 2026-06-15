@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# Bulk data — regenerable from upstream Lumbra. The committed sample
+# (data/sample/) is the self-contained corpus the repo ships with.
+data/raw/
+data/processed/
