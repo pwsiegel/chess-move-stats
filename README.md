@@ -4,6 +4,10 @@ Ingest a corpus of master-level over-the-board games and run move/position
 statistics on it. Source: **Lumbra's Gigabase OTB Elite** (both players
 ≥2400 Elo, ~900k games as of June 2026, updated monthly).
 
+Analyses live in `notebooks/`. The Python package (`src/chess_corpus/`)
+provides ingestion + a small library of streaming/parallel helpers; it's
+not a CLI.
+
 ## What's here
 
 ```
@@ -11,14 +15,17 @@ src/chess_corpus/
   download.py             # Fetch Lumbra OTB Elite .7z from MEGA, extract PGN
   index_games.py          # Stream PGN → parquet shards (one row per game)
   build_sample.py         # Carve a 100-game sample for VCS
+  analysis.py             # Streaming + parallel access; per-game mappers
   paths.py                # Shared filesystem paths
-  queries/
-    piece_on_square.py    # Example: how often is <piece> on <square>?
+
+notebooks/
+  explore_sample.ipynb        # Schema + how to read the parquet
+  games_by_decade.ipynb       # DuckDB-only: counts by decade
+  rook_b5_by_move.ipynb       # P(white Rb5 by move N)
+  rook_b5_by_material.ipynb   # P(white Rb5 with ≤M material on board)
 
 data/
   sample/                 # 100-game sample (checked in, repo is self-contained)
-    sample.pgn
-    games/games-00000.parquet
   raw/                    # Downloaded artifacts (gitignored, deleted by `make data`)
   processed/games/        # Full parquet index (gitignored)
 ```
@@ -31,72 +38,32 @@ is lost.
 
 ```sh
 uv sync
-brew install megatools    # for downloading the MEGA-hosted archive
+brew install megatools                              # for the MEGA download
+uv tool install --with jupyterlab-vim jupyterlab    # once per machine
 ```
 
-### Notebooks
-
-This project uses a global JupyterLab (installed once per machine) with
-project-specific kernels. To set up JupyterLab the first time:
-
-```sh
-uv tool install --with jupyterlab-vim jupyterlab    # adjust extensions to taste
-```
-
-Then from the project root:
-
-```sh
-make notebook
-```
-
-which registers a `chess-move-stats` kernel pointing at this venv and
-launches JupyterLab in `notebooks/`.
-
-## Ingest the full corpus
+## Ingest the corpus
 
 ```sh
 make data
 ```
 
-This:
+Resolves the Lumbra wpdm URL → MEGA URL (with the `#key` from the 302
+Location header, which curl auto-follow would strip), `megadl`s the 128 MB
+.7z, extracts, indexes into parquet shards under `data/processed/games/`,
+refreshes the sample, and deletes the raw PGN. ~5 min total.
 
-1. Resolves the Lumbra wpdm URL → MEGA URL (with decryption key from the
-   302 Location header, which curl auto-follow would strip)
-2. `megadl`s the ~128 MB .7z
-3. Extracts the PGN
-4. Streams it into parquet shards under `data/processed/games/`
-5. Deletes the raw PGN (the parquet preserves it)
-
-Expect ~5 min total (most of it the MEGA download; indexing 900k games is ~15 sec).
-
-## Try a query
-
-The example query answers the original motivating question:
+## Run notebooks
 
 ```sh
-# How often is a white rook on b5? (no Elo filter needed — Lumbra Elite is already 2400+)
-uv run python -m chess_corpus.queries.piece_on_square --piece R --square b5
-
-# Either-color rook on b5
-uv run python -m chess_corpus.queries.piece_on_square --piece R --square b5 --either-color
+make notebook
 ```
 
-Reports both:
+Registers the project kernel and launches JupyterLab in `notebooks/`. Each
+analysis notebook has a `USE_FULL_CORPUS = False` toggle near the top —
+flip it once you've run `make data`.
 
-- **position frequency**: matching positions / total positions
-- **game frequency**: games where it occurs at least once / games scanned
-
-Piece letters: `PNBRQK` (white) / `pnbrqk` (black). Add `--either-color` to
-match by piece type regardless of color.
-
-To try a query without the full download, point at the committed sample:
-
-```sh
-uv run python -m chess_corpus.queries.piece_on_square \
-    --piece R --square b5 --shard-dir data/sample/games
-```
-
-## Adding new queries
+## Writing new analyses
 
 Each parquet shard has columns:
 
@@ -106,13 +73,25 @@ Each parquet shard has columns:
 | white_elo / black_elo | int32 | null if unparseable |
 | pgn          | string | full original PGN block for the game   |
 
-A new query is: load shards with pyarrow or duckdb, filter on the typed
-columns, then replay `pgn` with `python-chess`. See `queries/piece_on_square.py`
-as a template.
+Two analysis patterns:
 
-DuckDB can read the parquet shards directly:
+**Header-only** — fast, pure DuckDB SQL on the parquet. See
+`notebooks/games_by_decade.ipynb`.
 
 ```sql
 SELECT eco, count(*) FROM 'data/processed/games/*.parquet'
 GROUP BY eco ORDER BY 2 DESC;
 ```
+
+**Position-level** — needs PGN replay. Add a mapper function to
+`src/chess_corpus/analysis.py` (kept at module top level so `ProcessPoolExecutor`
+can pickle it on macOS), then call `map_shards(your_mapper)` from a
+notebook. See `notebooks/rook_b5_by_move.ipynb` for a worked example.
+
+```python
+from chess_corpus.analysis import map_shards, white_rook_to_b5
+rows = map_shards(white_rook_to_b5)   # parallel across all shards
+```
+
+Single-threaded throughput is ~1,200 games/sec; with 8 cores expect ~2 min
+for the full ~900k-game corpus.
