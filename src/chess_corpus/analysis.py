@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import io
 import os
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Iterator, TypeVar
 
 import chess
 import chess.pgn
 import pyarrow.parquet as pq
+from tqdm.auto import tqdm
 
 from chess_corpus.paths import GAMES_PARQUET_DIR
 
@@ -76,11 +77,13 @@ def map_shards(
     shard_dir: Path = GAMES_PARQUET_DIR,
     reducer: Callable[[list[list[T]]], Any] | None = None,
     max_workers: int | None = None,
+    progress: bool = True,
 ) -> Any:
     """Run mapper over every game across all shards in parallel.
 
     Returns reducer(per_shard_results). Default reducer concatenates the
-    per-shard lists into one flat list.
+    per-shard lists into one flat list. Per-shard results are preserved in
+    input (sorted) order regardless of completion order.
     """
     shards = sorted(shard_dir.glob("*.parquet"))
     if not shards:
@@ -90,9 +93,18 @@ def map_shards(
     if reducer is None:
         reducer = lambda per_shard: [x for sub in per_shard for x in sub]
 
+    results: list[Any] = [None] * len(shards)
     with ProcessPoolExecutor(max_workers=max_workers) as ex:
-        per_shard = list(ex.map(_shard_worker, [(s, mapper) for s in shards]))
-    return reducer(per_shard)
+        futures = {
+            ex.submit(_shard_worker, (s, mapper)): i for i, s in enumerate(shards)
+        }
+        pbar = tqdm(total=len(shards), desc="shards", disable=not progress)
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+            pbar.update(1)
+        pbar.close()
+    return reducer(results)
 
 
 # ---------------------------------------------------------------------------

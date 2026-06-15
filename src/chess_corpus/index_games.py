@@ -105,7 +105,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--pgn", type=Path, default=LUMBRA_PGN)
     p.add_argument("--out", type=Path, default=GAMES_PARQUET_DIR)
-    p.add_argument("--shard-size", type=int, default=200_000)
+    p.add_argument(
+        "--shard-size",
+        type=int,
+        default=70_000,
+        help="Games per shard. Default 70k yields ~13 shards on the full "
+        "Lumbra Elite corpus — one wave on a 14-core machine "
+        "(ProcessPoolExecutor uses cores-1 workers by default).",
+    )
     p.add_argument("--limit", type=int, default=None, help="Stop after N games (for testing)")
     args = p.parse_args()
 
