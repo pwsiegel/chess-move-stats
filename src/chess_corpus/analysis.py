@@ -114,59 +114,54 @@ def map_shards(
 # ---------------------------------------------------------------------------
 
 
-def white_rook_to_b5(headers: dict, game: chess.pgn.Game) -> dict:
-    """Summarize white's rook-to-b5 history in a single game.
+def white_quiet_rook_to_b5(headers: dict, game: chess.pgn.Game) -> dict:
+    """Summarize white's voluntary (non-capture) rook-to-b5 history.
+
+    Only counts a white rook arriving on b5 when b5 was empty before the
+    move — captures on b5 are filtered out. Rooks can't en passant, so the
+    "destination empty" check is a complete capture filter.
 
     Returns
     -------
     first_rb5_fullmove : int | None
-        Full move number on which white FIRST played a rook to b5 (None if
-        never).
-    first_material_at_rb5 : int | None
-        Total material (both sides, kings excluded) immediately after the
-        first white Rb5. Material decreases monotonically, so this is the
-        highest material of any Rb5 in the game — useful for "did the first
-        Rb5 happen before the endgame?".
-    min_material_at_rb5 : int | None
-        Lowest material at any white Rb5 — useful for "did Rb5 ever happen
-        with material ≤ M?".
+        Full move number on which white first played a (non-capture) rook
+        to b5. None if it never happened.
+    first_rb5_material : int | None
+        Total material (both sides, kings excluded) immediately after that
+        first Rb5. Material decreases monotonically through a game, so this
+        is also the highest material at any Rb5 in the game.
     n_white_moves : int
         How many white moves the game contained.
     """
     board = game.board()
     first_fullmove: int | None = None
     first_material: int | None = None
-    min_material: int | None = None
     n_white_moves = 0
 
     for move in game.mainline_moves():
         if board.turn == chess.WHITE:
             n_white_moves += 1
             piece = board.piece_at(move.from_square)
-            is_white_rb5 = (
+            is_quiet_rb5 = (
                 piece is not None
                 and piece.piece_type == chess.ROOK
                 and move.to_square == chess.B5
+                and board.piece_at(chess.B5) is None
             )
             this_fullmove = board.fullmove_number
         else:
-            is_white_rb5 = False
+            is_quiet_rb5 = False
             this_fullmove = None
 
         board.push(move)
 
-        if is_white_rb5:
-            mat = total_material(board)
-            if first_fullmove is None:
-                first_fullmove = this_fullmove
-                first_material = mat
-            if min_material is None or mat < min_material:
-                min_material = mat
+        if is_quiet_rb5 and first_fullmove is None:
+            first_fullmove = this_fullmove
+            first_material = total_material(board)
 
     return {
         "first_rb5_fullmove": first_fullmove,
-        "first_material_at_rb5": first_material,
-        "min_material_at_rb5": min_material,
+        "first_rb5_material": first_material,
         "n_white_moves": n_white_moves,
     }
 
