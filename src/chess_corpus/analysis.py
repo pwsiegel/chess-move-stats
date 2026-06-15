@@ -120,19 +120,22 @@ def white_rook_to_b5(headers: dict, game: chess.pgn.Game) -> dict:
     Returns
     -------
     first_rb5_fullmove : int | None
-        The full move number on which white first played a rook to b5
-        (None if never).
+        Full move number on which white FIRST played a rook to b5 (None if
+        never).
+    first_material_at_rb5 : int | None
+        Total material (both sides, kings excluded) immediately after the
+        first white Rb5. Material decreases monotonically, so this is the
+        highest material of any Rb5 in the game — useful for "did the first
+        Rb5 happen before the endgame?".
     min_material_at_rb5 : int | None
-        The lowest total material (both sides, kings excluded) at any
-        white-rook-to-b5 position. None if never. Material decreases
-        monotonically through a game, so this is the material *just after*
-        the latest white Rb5.
+        Lowest material at any white Rb5 — useful for "did Rb5 ever happen
+        with material ≤ M?".
     n_white_moves : int
-        How many white moves the game contained — used to know whether the
-        game even had a chance to reach a given move number N.
+        How many white moves the game contained.
     """
     board = game.board()
     first_fullmove: int | None = None
+    first_material: int | None = None
     min_material: int | None = None
     n_white_moves = 0
 
@@ -156,11 +159,13 @@ def white_rook_to_b5(headers: dict, game: chess.pgn.Game) -> dict:
             mat = total_material(board)
             if first_fullmove is None:
                 first_fullmove = this_fullmove
+                first_material = mat
             if min_material is None or mat < min_material:
                 min_material = mat
 
     return {
         "first_rb5_fullmove": first_fullmove,
+        "first_material_at_rb5": first_material,
         "min_material_at_rb5": min_material,
         "n_white_moves": n_white_moves,
     }

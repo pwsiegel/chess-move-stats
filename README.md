@@ -21,8 +21,7 @@ src/chess_corpus/
 notebooks/
   explore_sample.ipynb        # Schema + how to read the parquet
   games_by_decade.ipynb       # DuckDB-only: counts by decade
-  rook_b5_by_move.ipynb       # P(white Rb5 by move N)
-  rook_b5_by_material.ipynb   # P(white Rb5 with ≤M material on board)
+  rook_b5.ipynb               # Marginal + conditional CDFs + top-10 PGNs
 
 data/
   sample/                 # 100-game sample (checked in, repo is self-contained)
